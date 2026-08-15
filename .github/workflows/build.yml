@@ -1,0 +1,163 @@
+name: Build APKs
+
+on:
+  workflow_dispatch:
+  push:
+    # Feature branches are covered by "Build PR". Building them here too added
+    # four more APK builds on top of it for every push. Use workflow_dispatch
+    # when a branch needs nightly artifacts.
+    branches: ["main"]
+    paths-ignore:
+      - "README.md"
+      - "fastlane/**"
+      - "assets/**"
+      - ".github/**/*.md"
+      - ".github/FUNDING.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+
+permissions:
+  contents: write
+  discussions: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_release:
+    name: Build Release (${{ matrix.variant }})
+    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        include:
+          # FOSS and Izzy differ from GMS only by ~80 lines of Cast stubs,
+          # plus the updater flag for Izzy (GMS and FOSS enable the updater,
+          # Izzy disables it). Both are still built by the release workflow,
+          # so building them nightly too doubled this workflow for almost no
+          # extra coverage.
+          - variant: gms
+            variantName: Gms
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_KEY }}
+          cache-cleanup: on-success
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release --warning-mode summary --no-build-cache --no-configuration-cache
+        env:
+          METROLIST_APPLICATION_ID: com.metrolist.music
+          METROLIST_APP_NAME: Metrolist Nightly
+          PULL_REQUEST: "false"
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+
+      - name: Sign APK
+        uses: ilharp/sign-android-release@v2.0.0
+        with:
+          releaseDir: app/build/outputs/apk/${{ matrix.variant }}/release/
+          signingKey: ${{ secrets.KEYSTORE }}
+          keyAlias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+          buildToolsVersion: 35.0.0
+
+      - name: Move signed APK
+        run: |
+          OUTPUT_DIR="app/build/outputs/apk/${{ matrix.variant }}/release"
+          mkdir -p "$OUTPUT_DIR/out"
+          if [ "${{ matrix.variant }}" = "gms" ]; then
+            TARGET_NAME="app-universal-with-Google-Cast.apk"
+          else
+            TARGET_NAME="app-universal-release.apk"
+          fi
+          find "$OUTPUT_DIR" -name "*-signed.apk" -o -name "*-unsigned-signed.apk" | xargs -I{} mv {} "$OUTPUT_DIR/out/$TARGET_NAME"
+
+      - name: Upload Signed APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.variant == 'gms' && 'app-with-Google-Cast' || 'app-release' }}
+          path: app/build/outputs/apk/${{ matrix.variant }}/release/out/*
+
+  build_debug:
+    name: Build Debug (${{ matrix.variant }})
+    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        include:
+          # FOSS and Izzy differ from GMS only by ~80 lines of Cast stubs,
+          # plus the updater flag for Izzy (GMS and FOSS enable the updater,
+          # Izzy disables it). Both are still built by the release workflow,
+          # so building them nightly too doubled this workflow for almost no
+          # extra coverage.
+          - variant: gms
+            variantName: Gms
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_KEY }}
+          cache-cleanup: on-success
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # The keystore is decoded from a base64 text blob below (fixed, always
+      # the same key) instead of being uploaded as a binary file - binary
+      # uploads through the mobile GitHub editor have a history of getting
+      # silently corrupted in this repo, and .gitignore excludes the raw
+      # .keystore file anyway. Text-only, safe to copy/paste.
+      - name: Restore Persistent Debug Keystore
+        run: |
+          echo "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" | base64 -d > app/persistent-debug.keystore
+
+      # Lint is intentionally not run in CI: it never gated a merge and added
+      # several minutes to every build. Run :app:lintGmsRelease locally.
+      - name: Build Debug APK
+        run: ./gradlew --console=plain assemble${{ matrix.variantName }}Debug --warning-mode summary --no-build-cache --no-configuration-cache
+        env:
+          METROLIST_APPLICATION_ID: com.metrolist.music
+          METROLIST_APP_NAME: Metrolist Nightly
+          PULL_REQUEST: "false"
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.variant == 'gms' && 'app-debug-gms' || 'app-debug' }}
+          path: app/build/outputs/apk/${{ matrix.variant }}/debug/*.apk
