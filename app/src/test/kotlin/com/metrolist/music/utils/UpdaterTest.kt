@@ -1,5 +1,6 @@
 package com.metrolist.music.utils
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -8,6 +9,11 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class UpdaterTest {
+    @Test
+    fun personalForkDoesNotOfferOfficialKmpReplacement() = runBlocking {
+        assertNull(Updater.getLatestKmpRelease().getOrThrow())
+    }
+
     @Test
     fun parsesKmpReleaseArtifact() {
         val response =

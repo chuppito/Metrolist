@@ -40,7 +40,6 @@ object Updater {
     
     private const val CHECK_INTERVAL_MILLIS = 2 * 60 * 60 * 1000L // 2 hours
     private const val GITHUB_API_BASE = "https://api.github.com/repos/chuppito/Metrolist"
-    private const val KMP_LATEST_RELEASE_URL = "https://api.github.com/repos/MetrolistGroup/Metrolist-KMP/releases/latest"
     private const val KMP_APK_NAME = "Metrolist.apk"
 
     /**
@@ -205,15 +204,8 @@ object Updater {
         ).takeIf { assets.isNotEmpty() }
     }
 
-    /**
-     * Returns the latest stable KMP release when it includes an Android APK.
-     */
-    suspend fun getLatestKmpRelease(): Result<ReleaseInfo?> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                parseKmpRelease(client.get(KMP_LATEST_RELEASE_URL).bodyAsText())
-            }
-        }
+    // The official KMP app does not include this fork's Android Auto customizations.
+    suspend fun getLatestKmpRelease(): Result<ReleaseInfo?> = Result.success(null)
 
     /**
      * Get the download URL for the correct app variant
