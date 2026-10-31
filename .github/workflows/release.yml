@@ -5,15 +5,16 @@ on:
       - "main"
     paths:
       - "app/build.gradle.kts"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   check-version:
-    if: "!contains(github.ref, 'refs/tags')"
+    if: github.repository == 'MetrolistGroup/Metrolist' && !contains(github.ref, 'refs/tags')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     outputs:
